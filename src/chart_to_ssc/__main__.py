@@ -69,6 +69,31 @@ def generate_notes(line: str) -> None:
                 ntype="End",
             )
             NOTE_QUEUES[PARSING][note.tick].append(note)
+def generate_difficulty(file: TextIO, level: int, diff: str) -> None:
+    start_tick = min(NOTE_QUEUES[diff].keys())
+    end_tick = max(NOTE_QUEUES[diff].keys())
+    logging.info(f"Generating {diff} from {start_tick} to {end_tick} for a total of {end_tick - start_tick} ticks")
+    logging.debug(f"Start note: {NOTE_QUEUES[diff][start_tick]}")
+    logging.debug(f"End note: {NOTE_QUEUES[diff][end_tick]}")
+    taps = starts = ends = 0
+    for tick in range(0, end_tick + 1):
+        line = [0] * 5
+        for note in NOTE_QUEUES[diff].get(tick, []):
+            match note.ntype:
+                case "Tap":
+                    line[note.pos] = 1
+                    taps += 1
+                case "Start":
+                    line[note.pos] = 2
+                    starts += 1
+                case "End":
+                    line[note.pos] = 3
+                    ends += 1
+        file.write("".join(map(str, line)) + "\n")
+        if tick != 0 and tick != end_tick and (tick + 1) % 192 == 0:
+            file.write(",\n")
+    logging.info(f"Generated {diff} with {taps} taps, {starts} starts, {ends} ends")
+    file.write(";\n")
 
 
 if __name__ == "__main__":
@@ -89,29 +114,6 @@ if __name__ == "__main__":
 
     logging.info("Done loading!")
 
-    with open("[ExpertSingle]2.ssc", "w", encoding="utf-8") as file:
-        taps = starts = ends = 0
-        start_tick = min(NOTE_QUEUES["[ExpertSingle]"].keys())
-        end_tick = max(NOTE_QUEUES["[ExpertSingle]"].keys())
-        logging.info(f"Generating from {start_tick} to {end_tick} for a total of {end_tick - start_tick}")
-        logging.debug(f"Start note: {NOTE_QUEUES['[ExpertSingle]'][start_tick]}")
-        logging.debug(f"End note: {NOTE_QUEUES['[ExpertSingle]'][end_tick]}")
-        file.write(SSC_HEADER_SOULLESS_5)
-        for tick in range(0, end_tick + 1):
-            line = [0] * 5
-            for note in NOTE_QUEUES["[ExpertSingle]"].get(tick, []):
-                match note.ntype:
-                    case "Tap":
-                        line[note.pos] = 1
-                        taps += 1
-                    case "Start":
-                        line[note.pos] = 2
-                        starts += 1
-                    case "End":
-                        line[note.pos] = 3
-                        ends += 1
-            file.write("".join(map(str, line)) + "\n")
-            if tick != 0 and tick != end_tick and (tick + 1) % 192 == 0:
-                file.write(",\n")
-        logging.info(f"Generated chart with {taps} taps, {starts} starts, {ends} ends")
-        file.write(";\n")
+    with open("audio.ssc", "w", encoding="utf-8") as file:
+        for level, diff in enumerate(NOTE_QUEUES):
+            generate_difficulty(file, 30 - level * 3, diff)
