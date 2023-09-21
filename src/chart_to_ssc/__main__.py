@@ -13,33 +13,43 @@ class Note:
     ntype: Literal["Tap", "Start", "End"]
 
 
-SSC_HEADER_SOULLESS_5 = """#VERSION:0.83;
-#TITLE:Soulless 5;
+class ParsingError(Exception):
+    pass
+
+
+METADATA = {}
+SSC_HEADER_TEMPLATE = """#VERSION:0.83;
+#TITLE:{Name};
 #SUBTITLE:;
-#ARTIST:ExileLord;
+#ARTIST:{Artist};
 #TITLETRANSLIT:;
 #SUBTITLETRANSLIT:;
 #ARTISTTRANSLIT:;
-#GENRE:;
+#GENRE:{Genre};
 #CREDIT:;
 #MUSIC:song.ogg;
 #BANNER:;
 #BACKGROUND:;
-#CDTITLE:;
+#CDTITLE:{Album};
 #SAMPLESTART:0.000;
 #SAMPLELENGTH:0.000;
 #SELECTABLE:YES;
-#OFFSET:0.010;
-#BPMS:0.000=130.000;
+#OFFSET:{Offset};
+#BPMS:{Bpms};
 #STOPS:;
+#SPEEDS:0.000=1.000=0.000=0;
+#SCROLLS:0.000=1.000;
+#TICKCOUNTS:0.000=4;
 #BGCHANGES:;
 #FGCHANGES:;
-//--------------- pump-single - Mez ----------------
+"""
+DIFF_HEADER_TEMPLATE = """
+//--------------- pump-single - Converted ----------------
 #NOTEDATA:;
 #STEPSTYPE:pump-single;
-#DESCRIPTION:Mez;
+#DESCRIPTION:Converted;
 #DIFFICULTY:Challenge;
-#METER:30;
+#METER:{level};
 #RADARVALUES:0,0,0,0,0;
 #NOTES:
 """
@@ -69,6 +79,33 @@ def generate_notes(line: str) -> None:
                 ntype="End",
             )
             NOTE_QUEUES[PARSING][note.tick].append(note)
+def parse_metadata(file: TextIO) -> None:
+    file.readline()  # Skip line
+    while (line := file.readline().strip()) != "}":
+        key, _, value = line.partition(" = ")
+        METADATA[key] = value.strip('"')
+    if METADATA["Resolution"] != "192":
+        msg = "Unsupported resolution, only 192 supported"
+        raise ParsingError(msg)
+    logging.info(f"Parsed metadata: {METADATA}")
+
+
+def parse_bpm(file: TextIO) -> None:
+    file.readline()  # Skip line
+    bpms: list[str] = []
+    while (line := file.readline().strip()) != "}":
+        tick_str, _, sync_str = line.partition(" = ")
+        if "TS" in sync_str:
+            if sync_str != "TS 4":
+                msg = "Unsupported time signature, only 4/4 supported"
+                raise ParsingError(msg)
+            continue
+        bpm = sync_str.split(" ")[1]
+        bpms.append(f"{tick_str}.000={bpm[:3]}.{bpm[3:]}")
+    METADATA["Bpms"] = ",".join(bpms)
+    logging.info(f"Parsed bpms: {bpms}")
+
+
 def generate_difficulty(file: TextIO, level: int, diff: str) -> None:
     start_tick = min(NOTE_QUEUES[diff].keys())
     end_tick = max(NOTE_QUEUES[diff].keys())
@@ -99,6 +136,10 @@ def generate_difficulty(file: TextIO, level: int, diff: str) -> None:
 if __name__ == "__main__":
     with open("notes.chart", encoding="utf-8") as file:
         while line := file.readline().strip():
+            if line == "[Song]":
+                parse_metadata(file)
+            if line == "[SyncTrack]":
+                parse_bpm(file)
             if line in NOTE_QUEUES.keys():
                 logging.info(f"Found difficulty: {line}")
                 PARSING = line
@@ -115,5 +156,6 @@ if __name__ == "__main__":
     logging.info("Done loading!")
 
     with open("audio.ssc", "w", encoding="utf-8") as file:
+        file.write(SSC_HEADER_TEMPLATE.format(**METADATA))
         for level, diff in enumerate(NOTE_QUEUES):
             generate_difficulty(file, 30 - level * 3, diff)
