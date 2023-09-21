@@ -63,22 +63,6 @@ NOTE_QUEUES: dict[str, dict[int, list[Note]]] = {
 }
 
 
-def generate_notes(line: str) -> None:
-    tick_str, sep, note_str = line.partition(" = N ")
-    if sep:
-        tick = int(tick_str) // 4
-        note_data = note_str.split(" ")
-        if note_data[0] in "567":
-            return
-        note = Note(tick=tick, pos=int(note_data[0]), ntype="Tap" if note_data[1] == "0" else "Start")
-        NOTE_QUEUES[PARSING][note.tick].append(note)
-        if note.ntype == "Start":
-            note = Note(
-                tick=note.tick + int(note_data[1]) // 4,
-                pos=note.pos,
-                ntype="End",
-            )
-            NOTE_QUEUES[PARSING][note.tick].append(note)
 def parse_metadata(file: TextIO) -> None:
     file.readline()  # Skip line
     while (line := file.readline().strip()) != "}":
@@ -106,7 +90,31 @@ def parse_bpm(file: TextIO) -> None:
     logging.info(f"Parsed bpms: {bpms}")
 
 
+def parse_difficulty(file: TextIO, diff: str) -> None:
+    file.readline()  # Skip line
+    skipped_notes = 0
+    while (line := file.readline().strip()) != "}":
+        tick_str, sep, note_str = line.partition(" = N ")
+        if sep:
+            tick = int(tick_str) // 4
+            note_data = note_str.split(" ")
+            if note_data[0] in "567":
+                skipped_notes += 1
+                continue
+            note = Note(tick=tick, pos=int(note_data[0]), ntype="Tap" if note_data[1] == "0" else "Start")
+            NOTE_QUEUES[diff][note.tick].append(note)
+            if note.ntype == "Start":
+                note = Note(
+                    tick=note.tick + int(note_data[1]) // 4,
+                    pos=note.pos,
+                    ntype="End",
+                )
+                NOTE_QUEUES[diff][note.tick].append(note)
+    logging.info(f"Parsed notes {len(NOTE_QUEUES[diff])}, skipped {skipped_notes}")
+
+
 def generate_difficulty(file: TextIO, level: int, diff: str) -> None:
+    file.write(DIFF_HEADER_TEMPLATE.format(level=level))
     start_tick = min(NOTE_QUEUES[diff].keys())
     end_tick = max(NOTE_QUEUES[diff].keys())
     logging.info(f"Generating {diff} from {start_tick} to {end_tick} for a total of {end_tick - start_tick} ticks")
@@ -141,18 +149,8 @@ if __name__ == "__main__":
             if line == "[SyncTrack]":
                 parse_bpm(file)
             if line in NOTE_QUEUES.keys():
-                logging.info(f"Found difficulty: {line}")
-                PARSING = line
-                file.readline()  # Skip line
-                continue
-            if not PARSING:
-                continue
-            if line == "}":
-                PARSING = ""
-                continue
-
-            generate_notes(line)
-
+                logging.info(f"Parsing difficulty: {line}")
+                parse_difficulty(file, line)
     logging.info("Done loading!")
 
     with open("audio.ssc", "w", encoding="utf-8") as file:
